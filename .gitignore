@@ -1,0 +1,18 @@
+# ML local data (raw CSVs should never be committed)
+ml/data/*.csv
+ml/data/*.txt
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Node / frontend
+node_modules/
+
+# Env
+.env
+
+# OS
+.DS_Store
