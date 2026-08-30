@@ -1,6 +1,5 @@
-# ML local data (raw CSVs should never be committed)
-ml/data/*.csv
-ml/data/*.txt
+# ML local data (exceeds GitHub's 100MB file size limit)
+ml/data/HI-Small_Trans.csv
 
 # Python
 __pycache__/
