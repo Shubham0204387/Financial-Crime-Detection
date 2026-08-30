@@ -1,0 +1,137 @@
+{
+  "cases": [
+    {
+      "case_id": "CASE-1001",
+      "risk_tier": "monitor",
+      "risk_score": 22,
+      "account_count": 3,
+      "flagged_at": "2026-08-20T09:15:00Z"
+    },
+    {
+      "case_id": "CASE-1002",
+      "risk_tier": "review",
+      "risk_score": 58,
+      "account_count": 6,
+      "flagged_at": "2026-08-22T14:40:00Z"
+    },
+    {
+      "case_id": "CASE-1003",
+      "risk_tier": "str_ready",
+      "risk_score": 91,
+      "account_count": 5,
+      "flagged_at": "2026-08-24T03:05:00Z"
+    },
+    {
+      "case_id": "CASE-1004",
+      "risk_tier": "str_ready",
+      "risk_score": 87,
+      "account_count": 4,
+      "flagged_at": "2026-08-25T11:22:00Z"
+    }
+  ],
+  "case_details": {
+    "CASE-1001": {
+      "case_id": "CASE-1001",
+      "risk_tier": "monitor",
+      "risk_score": 22,
+      "sub_scores": {
+        "velocity": 18,
+        "fan_ratio": 25,
+        "cycle_match": 5
+      },
+      "pattern_type": "unclassified",
+      "nodes": [
+        { "id": "ACC-A1", "label": "J. Rivera (Checking)" },
+        { "id": "ACC-A2", "label": "M. Chen (Savings)" },
+        { "id": "ACC-A3", "label": "Rivera Consulting LLC" }
+      ],
+      "edges": [
+        { "source": "ACC-A1", "target": "ACC-A3", "amount": 1200.00, "timestamp": "2026-08-18T10:00:00Z" },
+        { "source": "ACC-A3", "target": "ACC-A2", "amount": 450.00, "timestamp": "2026-08-19T16:30:00Z" }
+      ],
+      "evidence_text": "Low transaction velocity between three linked accounts. Amounts and frequency are consistent with routine personal transfers. No cyclical or fan-out structure detected. Routine monitoring only, no action required.",
+      "str_deadline": "2026-09-20T00:00:00Z"
+    },
+    "CASE-1002": {
+      "case_id": "CASE-1002",
+      "risk_tier": "review",
+      "risk_score": 58,
+      "sub_scores": {
+        "velocity": 62,
+        "fan_ratio": 55,
+        "cycle_match": 30
+      },
+      "pattern_type": "scatter_gather",
+      "nodes": [
+        { "id": "ACC-B1", "label": "Origin Account 771" },
+        { "id": "ACC-B2", "label": "Shell Corp Delta" },
+        { "id": "ACC-B3", "label": "Shell Corp Epsilon" },
+        { "id": "ACC-B4", "label": "Shell Corp Zeta" },
+        { "id": "ACC-B5", "label": "Consolidation Account 992" },
+        { "id": "ACC-B6", "label": "Offshore Holding 118" }
+      ],
+      "edges": [
+        { "source": "ACC-B1", "target": "ACC-B2", "amount": 9500.00, "timestamp": "2026-08-21T08:12:00Z" },
+        { "source": "ACC-B1", "target": "ACC-B3", "amount": 9200.00, "timestamp": "2026-08-21T08:14:00Z" },
+        { "source": "ACC-B1", "target": "ACC-B4", "amount": 9800.00, "timestamp": "2026-08-21T08:17:00Z" },
+        { "source": "ACC-B2", "target": "ACC-B5", "amount": 9400.00, "timestamp": "2026-08-21T20:02:00Z" },
+        { "source": "ACC-B3", "target": "ACC-B5", "amount": 9100.00, "timestamp": "2026-08-21T20:05:00Z" },
+        { "source": "ACC-B4", "target": "ACC-B6", "amount": 9700.00, "timestamp": "2026-08-22T02:30:00Z" }
+      ],
+      "evidence_text": "Single origin account fans funds out to three shell entities within minutes, each transfer sized just under the $10,000 reporting threshold. Funds then consolidate toward an offshore holding account within 24 hours. Pattern is consistent with structuring but sample size is limited; flagged for analyst review before escalation.",
+      "str_deadline": "2026-09-05T00:00:00Z"
+    },
+    "CASE-1003": {
+      "case_id": "CASE-1003",
+      "risk_tier": "str_ready",
+      "risk_score": 91,
+      "sub_scores": {
+        "velocity": 88,
+        "fan_ratio": 74,
+        "cycle_match": 95
+      },
+      "pattern_type": "cycle",
+      "nodes": [
+        { "id": "ACC-C1", "label": "Account 4471" },
+        { "id": "ACC-C2", "label": "Account 5583" },
+        { "id": "ACC-C3", "label": "Account 6695" },
+        { "id": "ACC-C4", "label": "Account 7707" },
+        { "id": "ACC-C5", "label": "Account 8819" }
+      ],
+      "edges": [
+        { "source": "ACC-C1", "target": "ACC-C2", "amount": 48000.00, "timestamp": "2026-08-23T01:00:00Z" },
+        { "source": "ACC-C2", "target": "ACC-C3", "amount": 47500.00, "timestamp": "2026-08-23T01:45:00Z" },
+        { "source": "ACC-C3", "target": "ACC-C4", "amount": 47000.00, "timestamp": "2026-08-23T02:30:00Z" },
+        { "source": "ACC-C4", "target": "ACC-C5", "amount": 46800.00, "timestamp": "2026-08-23T03:10:00Z" },
+        { "source": "ACC-C5", "target": "ACC-C1", "amount": 46500.00, "timestamp": "2026-08-23T03:55:00Z" }
+      ],
+      "evidence_text": "Funds traverse a closed five-account cycle and return to the originating account within three hours, with each hop retaining roughly 98-99% of the transferred value (minimal skim consistent with layering fees). No underlying goods, services, or business relationship identified between the accounts. Classic layering/cycle pattern. Recommend filing a Suspicious Transaction Report.",
+      "str_deadline": "2026-09-02T00:00:00Z"
+    },
+    "CASE-1004": {
+      "case_id": "CASE-1004",
+      "risk_tier": "str_ready",
+      "risk_score": 87,
+      "sub_scores": {
+        "velocity": 80,
+        "fan_ratio": 68,
+        "cycle_match": 90
+      },
+      "pattern_type": "cycle",
+      "nodes": [
+        { "id": "ACC-D1", "label": "Franchise Parent Co." },
+        { "id": "ACC-D2", "label": "Franchise Location #12" },
+        { "id": "ACC-D3", "label": "Regional Payroll Processor" },
+        { "id": "ACC-D4", "label": "Franchise Location #12" }
+      ],
+      "edges": [
+        { "source": "ACC-D1", "target": "ACC-D2", "amount": 30000.00, "timestamp": "2026-08-01T09:00:00Z" },
+        { "source": "ACC-D2", "target": "ACC-D3", "amount": 29500.00, "timestamp": "2026-08-01T09:30:00Z" },
+        { "source": "ACC-D3", "target": "ACC-D4", "amount": 29000.00, "timestamp": "2026-08-01T10:00:00Z" },
+        { "source": "ACC-D4", "target": "ACC-D1", "amount": 8500.00, "timestamp": "2026-08-28T09:00:00Z" }
+      ],
+      "evidence_text": "Automated detection flagged a closed four-account cycle with high cycle-match and velocity scores, resembling layering. Manual review found a benign explanation: this is a monthly franchise royalty and payroll disbursement chain (parent funds location, location pays regional payroll processor, processor remits net payroll, location remits royalty back to parent) documented in the franchise agreement on file. The apparent 'return to origin' is a much smaller royalty payment (~28% of the outbound amount), not a same-value round-trip, and spans 27 days rather than hours. Recommend dismissal with notation; retained here as a str_ready example of a high-scoring false positive for model tuning reference.",
+      "str_deadline": "2026-09-08T00:00:00Z"
+    }
+  }
+}
