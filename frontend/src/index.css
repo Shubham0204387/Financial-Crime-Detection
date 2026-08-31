@@ -224,6 +224,39 @@ a {
   }
 }
 
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 20px;
+  font-size: 13px;
+}
+
+.pagination-status {
+  color: var(--text);
+}
+
+.pagination-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: var(--row-hover);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .case-table a {
   font-weight: 600;
   color: var(--text-h);
