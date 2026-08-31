@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { fetchCases } from '../api/cases'
 
 const RISK_TIER_ORDER = { str_ready: 0, review: 1, monitor: 2 }
@@ -32,6 +32,8 @@ function formatDate(isoString) {
 }
 
 export default function CaseList() {
+  const [searchParams] = useSearchParams()
+  const mockMode = searchParams.get('mock')
   const [status, setStatus] = useState('loading')
   const [cases, setCases] = useState([])
   const [retryKey, setRetryKey] = useState(0)
@@ -54,7 +56,7 @@ export default function CaseList() {
     return () => {
       cancelled = true
     }
-  }, [retryKey])
+  }, [mockMode, retryKey])
 
   if (status === 'loading') {
     return (
