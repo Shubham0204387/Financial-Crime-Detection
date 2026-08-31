@@ -4,3 +4,4 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 // Static mock data served from public/mock during local frontend development.
 export const MOCK_CASES_URL = '/mock/cases.json'
+export const MOCK_CASE_DETAILS_URL = '/mock/case_detail_examples.json'

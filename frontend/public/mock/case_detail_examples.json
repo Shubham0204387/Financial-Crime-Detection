@@ -1,0 +1,107 @@
+{
+  "CASE-1001": {
+    "case_id": "CASE-1001",
+    "risk_tier": "monitor",
+    "risk_score": 22,
+    "sub_scores": {
+      "velocity": 15,
+      "fan_ratio": 20,
+      "cycle_match": 8
+    },
+    "pattern_type": "unclassified",
+    "nodes": [
+      { "id": "ACC-A1", "label": "J. Rivera (Checking)" },
+      { "id": "ACC-A2", "label": "M. Chen (Savings)" },
+      { "id": "ACC-A3", "label": "Rivera Consulting LLC" }
+    ],
+    "edges": [
+      { "source": "ACC-A1", "target": "ACC-A3", "amount": 1200.0, "timestamp": "2026-08-18T10:00:00Z" },
+      { "source": "ACC-A3", "target": "ACC-A2", "amount": 450.0, "timestamp": "2026-08-19T16:30:00Z" }
+    ],
+    "evidence_text": "₹15,000 moved between three linked accounts over two weeks with no repeating structure or fan-out pattern. Transfer sizes and timing are consistent with routine personal transfers.",
+    "str_deadline": null
+  },
+  "CASE-1002": {
+    "case_id": "CASE-1002",
+    "risk_tier": "review",
+    "risk_score": 58,
+    "sub_scores": {
+      "velocity": 65,
+      "fan_ratio": 72,
+      "cycle_match": 20
+    },
+    "pattern_type": "scatter_gather",
+    "nodes": [
+      { "id": "ACC-B1", "label": "Origin Account 771" },
+      { "id": "ACC-B2", "label": "Shell Corp Delta" },
+      { "id": "ACC-B3", "label": "Shell Corp Epsilon" },
+      { "id": "ACC-B4", "label": "Shell Corp Zeta" },
+      { "id": "ACC-B5", "label": "Shell Corp Theta" },
+      { "id": "ACC-B6", "label": "Consolidation Account 992" }
+    ],
+    "edges": [
+      { "source": "ACC-B1", "target": "ACC-B2", "amount": 10500.0, "timestamp": "2026-08-21T08:12:00Z" },
+      { "source": "ACC-B1", "target": "ACC-B3", "amount": 10200.0, "timestamp": "2026-08-21T08:14:00Z" },
+      { "source": "ACC-B1", "target": "ACC-B4", "amount": 10800.0, "timestamp": "2026-08-21T08:17:00Z" },
+      { "source": "ACC-B1", "target": "ACC-B5", "amount": 10600.0, "timestamp": "2026-08-21T08:20:00Z" },
+      { "source": "ACC-B2", "target": "ACC-B6", "amount": 10300.0, "timestamp": "2026-08-21T13:45:00Z" },
+      { "source": "ACC-B3", "target": "ACC-B6", "amount": 10000.0, "timestamp": "2026-08-21T13:52:00Z" },
+      { "source": "ACC-B4", "target": "ACC-B6", "amount": 10600.0, "timestamp": "2026-08-21T14:05:00Z" },
+      { "source": "ACC-B5", "target": "ACC-B6", "amount": 10400.0, "timestamp": "2026-08-21T14:10:00Z" }
+    ],
+    "evidence_text": "₹42,000 entered Account B1, split into four transfers of roughly ₹10,000 each across shell accounts, and reconverged into Account B6 within six hours.",
+    "str_deadline": null
+  },
+  "CASE-1003": {
+    "case_id": "CASE-1003",
+    "risk_tier": "str_ready",
+    "risk_score": 91,
+    "sub_scores": {
+      "velocity": 90,
+      "fan_ratio": 60,
+      "cycle_match": 97
+    },
+    "pattern_type": "cycle",
+    "nodes": [
+      { "id": "ACC-C1", "label": "Account 4471" },
+      { "id": "ACC-C2", "label": "Account 5583" },
+      { "id": "ACC-C3", "label": "Account 6695" },
+      { "id": "ACC-C4", "label": "Account 7707" },
+      { "id": "ACC-C5", "label": "Account 8819" }
+    ],
+    "edges": [
+      { "source": "ACC-C1", "target": "ACC-C2", "amount": 48000.0, "timestamp": "2026-08-23T01:00:00Z" },
+      { "source": "ACC-C2", "target": "ACC-C3", "amount": 47500.0, "timestamp": "2026-08-23T01:45:00Z" },
+      { "source": "ACC-C3", "target": "ACC-C4", "amount": 47000.0, "timestamp": "2026-08-23T02:30:00Z" },
+      { "source": "ACC-C4", "target": "ACC-C5", "amount": 46800.0, "timestamp": "2026-08-23T03:10:00Z" },
+      { "source": "ACC-C5", "target": "ACC-C1", "amount": 46500.0, "timestamp": "2026-08-23T03:55:00Z" }
+    ],
+    "evidence_text": "₹48,000 entered Account C1, cycled through four intermediary accounts, and returned to Account C1 within three hours, retaining over 97% of value at each hop.",
+    "str_deadline": "2026-09-04T00:00:00Z"
+  },
+  "CASE-1004": {
+    "case_id": "CASE-1004",
+    "risk_tier": "str_ready",
+    "risk_score": 87,
+    "sub_scores": {
+      "velocity": 85,
+      "fan_ratio": 55,
+      "cycle_match": 92
+    },
+    "pattern_type": "cycle",
+    "nodes": [
+      { "id": "ACC-D1", "label": "Account 2231" },
+      { "id": "ACC-D2", "label": "Account 3342" },
+      { "id": "ACC-D3", "label": "Account 4453" },
+      { "id": "ACC-D4", "label": "Account 5564" }
+    ],
+    "edges": [
+      { "source": "ACC-D1", "target": "ACC-D2", "amount": 30000.0, "timestamp": "2026-08-28T09:00:00Z" },
+      { "source": "ACC-D2", "target": "ACC-D3", "amount": 29700.0, "timestamp": "2026-08-28T09:20:00Z" },
+      { "source": "ACC-D3", "target": "ACC-D4", "amount": 29500.0, "timestamp": "2026-08-28T09:45:00Z" },
+      { "source": "ACC-D4", "target": "ACC-D1", "amount": 29300.0, "timestamp": "2026-08-28T10:05:00Z" }
+    ],
+    "evidence_text": "₹30,000 originated from Account D1 and circulated through three related accounts before returning to Account D1 within two hours, with negligible value loss at each hop.",
+    "str_deadline": "2026-09-06T00:00:00Z"
+  }
+}
