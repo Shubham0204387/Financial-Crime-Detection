@@ -10,12 +10,13 @@
   --tier-review-bg: #fdecd2;
   --tier-review-text: #8a5a00;
   --tier-monitor-bg: #e7e7ea;
-  --tier-monitor-text: #4b4a52;
+  --tier-monitor-text: #38363f;
 
   --accent: #5b6cf9;
   --panel-bg: #f7f7f9;
   --deadline-bg: #fde2e1;
   --deadline-text: #9c1c17;
+  --live-dot: #2ea043;
 
   font: 16px/145% system-ui, 'Segoe UI', Roboto, sans-serif;
   color-scheme: light dark;
@@ -42,6 +43,7 @@
     --panel-bg: #1f2028;
     --deadline-bg: #4a1a18;
     --deadline-text: #ff9d97;
+    --live-dot: #3fb950;
   }
 }
 
@@ -99,6 +101,44 @@ a {
   color: #fff;
 }
 
+.live-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--live-dot);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+.live-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-h);
+}
+
+.live-updated {
+  color: var(--text);
+  opacity: 0.75;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .state-message {
   padding: 32px 0;
   text-align: center;
@@ -151,7 +191,7 @@ a {
 .case-table th,
 .case-table td {
   text-align: left;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -163,8 +203,25 @@ a {
   letter-spacing: 0.04em;
 }
 
+.case-row {
+  animation: row-in 260ms ease-out both;
+  transition: background-color 150ms ease, transform 150ms ease;
+}
+
 .case-table tbody tr:hover {
   background: var(--row-hover);
+  transform: translateY(-1px);
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .case-table a {
@@ -181,7 +238,8 @@ a {
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .risk-badge--str_ready {
@@ -217,7 +275,7 @@ a {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .case-detail-header h2 {
@@ -268,6 +326,18 @@ a {
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg);
+  animation: graph-in 400ms ease-out both;
+}
+
+@keyframes graph-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .evidence-panel {
@@ -275,7 +345,7 @@ a {
   min-width: 260px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 18px;
+  padding: 20px;
   background: var(--panel-bg);
 }
 
@@ -333,8 +403,10 @@ a {
 
 .sub-score-bar-fill {
   height: 100%;
+  width: 0%;
   background: var(--accent);
   border-radius: 4px;
+  transition: width 650ms ease-out;
 }
 
 .borderline-callout {
@@ -377,4 +449,21 @@ a {
   line-height: 1.6;
   white-space: pre-wrap;
   color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .case-row,
+  .case-graph,
+  .live-dot,
+  .spinner {
+    animation: none !important;
+  }
+
+  .sub-score-bar-fill {
+    transition: none !important;
+  }
+
+  .case-table tbody tr:hover {
+    transform: none;
+  }
 }

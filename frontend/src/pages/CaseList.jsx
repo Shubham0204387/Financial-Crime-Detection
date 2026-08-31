@@ -31,6 +31,25 @@ function formatDate(isoString) {
   })
 }
 
+function LiveIndicator() {
+  const [seconds, setSeconds] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => setSeconds((s) => s + 1), 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <div className="live-indicator">
+      <span className="live-dot" aria-hidden="true" />
+      <span className="live-label">Live</span>
+      <span className="live-updated">
+        Last updated: {seconds < 5 ? 'just now' : `${seconds}s ago`}
+      </span>
+    </div>
+  )
+}
+
 export default function CaseList() {
   const [searchParams] = useSearchParams()
   const mockMode = searchParams.get('mock')
@@ -58,17 +77,17 @@ export default function CaseList() {
     }
   }, [mockMode, retryKey])
 
+  let content
+
   if (status === 'loading') {
-    return (
+    content = (
       <div className="state-message">
         <span className="spinner" aria-hidden="true" />
         <p>Loading cases…</p>
       </div>
     )
-  }
-
-  if (status === 'error') {
-    return (
+  } else if (status === 'error') {
+    content = (
       <div className="state-message state-message--error">
         <p>Something went wrong loading cases — try again.</p>
         <button type="button" className="retry-button" onClick={() => setRetryKey((k) => k + 1)}>
@@ -76,38 +95,43 @@ export default function CaseList() {
         </button>
       </div>
     )
-  }
-
-  if (cases.length === 0) {
-    return <p className="state-message">No patterns detected in this window</p>
+  } else if (cases.length === 0) {
+    content = <p className="state-message">No patterns detected in this window</p>
+  } else {
+    content = (
+      <table className="case-table">
+        <thead>
+          <tr>
+            <th>Case ID</th>
+            <th>Risk Tier</th>
+            <th>Risk Score</th>
+            <th>Accounts</th>
+            <th>Flagged At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cases.map((c, i) => (
+            <tr key={c.case_id} className="case-row" style={{ animationDelay: `${Math.min(i, 10) * 60}ms` }}>
+              <td>
+                <Link to={`/cases/${c.case_id}`}>{c.case_id}</Link>
+              </td>
+              <td>
+                <RiskBadge tier={c.risk_tier} />
+              </td>
+              <td>{c.risk_score}</td>
+              <td>{c.account_count}</td>
+              <td>{formatDate(c.flagged_at)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
   }
 
   return (
-    <table className="case-table">
-      <thead>
-        <tr>
-          <th>Case ID</th>
-          <th>Risk Tier</th>
-          <th>Risk Score</th>
-          <th>Accounts</th>
-          <th>Flagged At</th>
-        </tr>
-      </thead>
-      <tbody>
-        {cases.map((c) => (
-          <tr key={c.case_id}>
-            <td>
-              <Link to={`/cases/${c.case_id}`}>{c.case_id}</Link>
-            </td>
-            <td>
-              <RiskBadge tier={c.risk_tier} />
-            </td>
-            <td>{c.risk_score}</td>
-            <td>{c.account_count}</td>
-            <td>{formatDate(c.flagged_at)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="case-list">
+      <LiveIndicator />
+      {content}
+    </div>
   )
 }
