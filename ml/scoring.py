@@ -24,6 +24,10 @@ from ml.detection import find_cycle_instances, find_fan_clusters
 
 logger = logging.getLogger(__name__)
 
+# PMLA/FIU-IND requires filing an STR within 7 working days of a case being
+# flagged. BDay skips Saturdays/Sundays (no holiday calendar), matching that.
+STR_FILING_WINDOW = pd.tseries.offsets.BDay(7)
+
 # A case with more nodes than this gets capped (see _cap_fan_case) --
 # past this size a subgraph stops being visually/analytically useful for
 # a human reviewer. Cycle instances are naturally bounded by max_hops
@@ -412,10 +416,13 @@ def case_to_api_detail(
         }
         for _, row in case_txs.sort_values("Timestamp").iterrows()
     ]
-    # No regulatory deadline data exists in this dataset; 30 days from the
-    # case's last transaction is a placeholder consistent with typical
-    # STR filing windows, not a derived/observed value.
-    str_deadline = (case["end_time"] + pd.Timedelta(days=30)).isoformat() + "Z"
+    # Relative to real wall-clock time (when the pipeline runs), not any
+    # timestamp from this historical dataset -- the dataset is from Sept
+    # 2022, so a deadline computed from it would already be in the past,
+    # breaking the frontend's live countdown. Deliberately different each
+    # time the pipeline runs.
+    now = pd.Timestamp.now(tz="UTC").tz_convert(None).floor("s")
+    str_deadline = (now + STR_FILING_WINDOW).isoformat() + "Z"
 
     return {
         "case_id": case["case_id"],
