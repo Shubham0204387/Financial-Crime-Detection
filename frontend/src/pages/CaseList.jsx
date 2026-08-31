@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { fetchCases } from '../api/cases'
 
 const RISK_TIER_ORDER = { str_ready: 0, review: 1, monitor: 2 }
+const PAGE_SIZE = 25
 
 const RISK_TIER_LABEL = {
   str_ready: 'STR Ready',
@@ -11,9 +12,11 @@ const RISK_TIER_LABEL = {
 }
 
 function sortByRiskTier(cases) {
-  return [...cases].sort(
-    (a, b) => RISK_TIER_ORDER[a.risk_tier] - RISK_TIER_ORDER[b.risk_tier],
-  )
+  return [...cases].sort((a, b) => {
+    const tierDiff = RISK_TIER_ORDER[a.risk_tier] - RISK_TIER_ORDER[b.risk_tier]
+    if (tierDiff !== 0) return tierDiff
+    return b.risk_score - a.risk_score
+  })
 }
 
 function RiskBadge({ tier }) {
@@ -56,10 +59,12 @@ export default function CaseList() {
   const [status, setStatus] = useState('loading')
   const [cases, setCases] = useState([])
   const [retryKey, setRetryKey] = useState(0)
+  const [page, setPage] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setStatus('loading')
+    setPage(0)
 
     fetchCases()
       .then((data) => {
@@ -98,33 +103,62 @@ export default function CaseList() {
   } else if (cases.length === 0) {
     content = <p className="state-message state-message--empty">No patterns detected in this window</p>
   } else {
+    const totalPages = Math.ceil(cases.length / PAGE_SIZE)
+    const currentPage = Math.min(page, totalPages - 1)
+    const start = currentPage * PAGE_SIZE
+    const pageCases = cases.slice(start, start + PAGE_SIZE)
+
     content = (
-      <table className="case-table">
-        <thead>
-          <tr>
-            <th>Case ID</th>
-            <th>Risk Tier</th>
-            <th>Risk Score</th>
-            <th>Accounts</th>
-            <th>Flagged At</th>
-          </tr>
-        </thead>
-        <tbody>
-          {cases.map((c, i) => (
-            <tr key={c.case_id} className="case-row" style={{ animationDelay: `${Math.min(i, 10) * 60}ms` }}>
-              <td>
-                <Link to={`/cases/${c.case_id}`}>{c.case_id}</Link>
-              </td>
-              <td>
-                <RiskBadge tier={c.risk_tier} />
-              </td>
-              <td>{c.risk_score}</td>
-              <td>{c.account_count}</td>
-              <td>{formatDate(c.flagged_at)}</td>
+      <>
+        <table className="case-table">
+          <thead>
+            <tr>
+              <th>Case ID</th>
+              <th>Risk Tier</th>
+              <th>Risk Score</th>
+              <th>Accounts</th>
+              <th>Flagged At</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {pageCases.map((c, i) => (
+              <tr key={c.case_id} className="case-row" style={{ animationDelay: `${Math.min(i, 10) * 60}ms` }}>
+                <td>
+                  <Link to={`/cases/${c.case_id}`}>{c.case_id}</Link>
+                </td>
+                <td>
+                  <RiskBadge tier={c.risk_tier} />
+                </td>
+                <td>{c.risk_score}</td>
+                <td>{c.account_count}</td>
+                <td>{formatDate(c.flagged_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div className="pagination">
+          <button
+            type="button"
+            className="pagination-btn"
+            disabled={currentPage === 0}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            Previous
+          </button>
+          <span className="pagination-status">
+            Page {currentPage + 1} of {totalPages} · {cases.length} cases
+          </span>
+          <button
+            type="button"
+            className="pagination-btn"
+            disabled={currentPage >= totalPages - 1}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next
+          </button>
+        </div>
+      </>
     )
   }
 

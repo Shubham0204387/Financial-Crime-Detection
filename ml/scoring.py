@@ -15,7 +15,6 @@ requires for GET /cases/{case_id}.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import networkx as nx
@@ -25,16 +24,9 @@ from ml.detection import find_cycle_instances, find_fan_clusters
 
 logger = logging.getLogger(__name__)
 
-
-def _add_working_days(start: datetime, working_days: int) -> datetime:
-    """Add `working_days` weekdays (Mon-Fri) to `start`, skipping weekends."""
-    current = start
-    added = 0
-    while added < working_days:
-        current += timedelta(days=1)
-        if current.weekday() < 5:
-            added += 1
-    return current
+# PMLA/FIU-IND requires filing an STR within 7 working days of a case being
+# flagged. BDay skips Saturdays/Sundays (no holiday calendar), matching that.
+STR_FILING_WINDOW = pd.tseries.offsets.BDay(7)
 
 # A case with more nodes than this gets capped (see _cap_fan_case) --
 # past this size a subgraph stops being visually/analytically useful for
@@ -424,11 +416,13 @@ def case_to_api_detail(
         }
         for _, row in case_txs.sort_values("Timestamp").iterrows()
     ]
-    # PMLA/FIU-IND requires filing within 7 working days. The dataset is
-    # historical (Sept 2022), so the deadline is relative to real wall-clock
-    # time (when the pipeline runs), not any timestamp from the dataset --
-    # otherwise every str_ready case's deadline would already be in the past.
-    str_deadline = _add_working_days(datetime.now(timezone.utc), 7).replace(tzinfo=None).isoformat() + "Z"
+    # Relative to real wall-clock time (when the pipeline runs), not any
+    # timestamp from this historical dataset -- the dataset is from Sept
+    # 2022, so a deadline computed from it would already be in the past,
+    # breaking the frontend's live countdown. Deliberately different each
+    # time the pipeline runs.
+    now = pd.Timestamp.now(tz="UTC").tz_convert(None).floor("s")
+    str_deadline = (now + STR_FILING_WINDOW).isoformat() + "Z"
 
     return {
         "case_id": case["case_id"],
