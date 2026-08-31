@@ -1,26 +1,36 @@
-"""Case grouping and risk scoring: detector flags -> scored, explainable cases.
+"""Case grouping and risk scoring: detector instances -> scored, explainable cases.
 
-detect_cycles and detect_fan_in_out (ml/detection.py) return a boolean
-flag per transaction, with no notion of which flagged transactions
-belong together as one detected structure. This module bridges that gap:
-group_into_cases clusters flagged transactions into cases by connectivity,
-and the scoring functions below turn each case into the explainable
-sub_scores / risk_score / risk_tier / evidence_text shape docs/api-contract.md
+find_cycle_instances and find_fan_clusters (ml/detection.py) each already
+identify one detected structure at a time -- a single closed loop, or a
+single hub's fan-in/out burst in one time bin. group_into_cases turns
+each one directly into exactly one case, tightly scoped to only the
+accounts/transactions that make up that specific instance (1 cycle
+instance = 1 case; 1 fan cluster = 1 case; never merged, even if they
+share an account -- see group_into_cases' docstring for why). The scoring
+functions below turn each case into the explainable sub_scores /
+risk_score / risk_tier / evidence_text shape docs/api-contract.md
 requires for GET /cases/{case_id}.
 """
 
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from typing import Any
 
 import networkx as nx
 import pandas as pd
 
+from ml.detection import find_cycle_instances, find_fan_clusters
+
 logger = logging.getLogger(__name__)
 
-# Mirrors detect_cycles' / detect_fan_in_out's own time_window_hours
+# A case with more nodes than this gets capped (see _cap_fan_case) --
+# past this size a subgraph stops being visually/analytically useful for
+# a human reviewer. Cycle instances are naturally bounded by max_hops
+# (default 6) and never need capping; only fan clusters can exceed it.
+MAX_CASE_NODES = 20
+
+# Mirrors find_cycle_instances' / find_fan_clusters' own time_window_hours
 # defaults (ml/detection.py) -- the maximum span either detector allows
 # before it stops considering something a match. Used as the reference
 # scale for compute_sub_scores' velocity score: "how much of the allowed
@@ -37,115 +47,151 @@ FAN_REFERENCE_WINDOW_HOURS = 12.0
 RISK_WEIGHTS = {"cycle_match": 0.45, "fan_ratio": 0.30, "velocity": 0.25}
 
 
+def _finalize_case(
+    case_id: str, case_txs: pd.DataFrame, accounts: set[str], pattern_type: str, truncation_note: str | None
+) -> dict[str, Any]:
+    start_time = case_txs["Timestamp"].min()
+    end_time = case_txs["Timestamp"].max()
+    case: dict[str, Any] = {
+        "case_id": case_id,
+        "accounts": accounts,
+        "transactions": case_txs,
+        "pattern_type": pattern_type,
+        "start_time": start_time,
+        "end_time": end_time,
+        "time_span": end_time - start_time,
+    }
+    if truncation_note:
+        case["truncation_note"] = truncation_note
+    return case
+
+
+def _cap_fan_case(
+    case_txs: pd.DataFrame, hub_account: str, direction: str, max_nodes: int
+) -> tuple[pd.DataFrame, set[str], str]:
+    """Cap an oversized fan cluster to its top (max_nodes - 1) neighbors by transaction amount.
+
+    Ranks each neighbor by its largest single transaction with the hub
+    (a simple, explainable ranking: "show the biggest transfers first"),
+    keeps the top max_nodes - 1 of them (leaving one node slot for the
+    hub itself), and drops every transaction to/from the rest.
+    """
+    neighbor_col = "To Account" if direction == "out" else "From Account"
+    neighbor_rank = case_txs.groupby(neighbor_col)["Amount Paid"].max().sort_values(ascending=False)
+    total_neighbors = len(neighbor_rank)
+    keep_neighbors = set(neighbor_rank.head(max_nodes - 1).index)
+
+    capped_txs = case_txs[case_txs[neighbor_col].isin(keep_neighbors)]
+    capped_accounts = {hub_account} | keep_neighbors
+    verb = "fan-out" if direction == "out" else "fan-in"
+    note = f"showing largest {len(capped_txs)} of {len(case_txs)} {verb} transfers ({len(keep_neighbors)} of {total_neighbors} accounts)"
+    return capped_txs, capped_accounts, note
+
+
 def group_into_cases(
     transactions_df: pd.DataFrame,
-    graph: nx.MultiDiGraph | None,
-    cycle_flags: pd.Series,
-    fan_flags: pd.Series,
+    graph: nx.MultiDiGraph | None = None,
+    max_hops: int = 6,
+    cycle_time_window_hours: float = 48,
+    min_fan: int = 5,
+    fan_time_window_hours: float = 12,
+    hub_degree_cap: int = 30,
+    max_case_nodes: int = MAX_CASE_NODES,
 ) -> list[dict[str, Any]]:
-    """Cluster flagged transactions into cases by account connectivity.
+    """Turn each detected cycle instance / fan cluster directly into one case.
 
-    Neither detect_cycles nor detect_fan_in_out records which flagged
-    transactions belong to the same detected structure -- both return a
-    flat boolean flag per transaction. This recovers that grouping via
-    connected components: build an undirected graph over the accounts
-    touched by any flagged transaction, and treat each connected
-    component as one case. A genuine cycle instance's accounts form a
-    tight closed loop (one component); a genuine fan-in/out burst's
-    accounts form a star around its hub (one component). Two clusters
-    that happen to share an account (e.g. a fan-out target that's also
-    on an unrelated detected cycle) merge into a single case tagged with
-    both pattern types -- a deliberate simplification for this v1, not a
-    guarantee that every case corresponds to exactly one detector event.
+    Each case is scoped to exactly one detector-found motif instance --
+    NOT a connected component over all flagged activity. An earlier
+    version grouped by connectivity, which let unrelated clusters that
+    happened to share one account merge into a single oversized,
+    entangled case (one observed case had 57 nodes and ~130 edges, most
+    unrelated to the motif that actually triggered the flag) -- unusable
+    for subgraph visualization and misleading as evidence. This version
+    calls find_cycle_instances and find_fan_clusters directly (rather
+    than detect_cycles/detect_fan_in_out's flattened boolean flags,
+    which lose the per-instance grouping) and builds one case per
+    instance/cluster:
+    - A cycle case contains ONLY that cycle's own accounts and hop
+      transactions (find_cycle_instances already returns exactly that).
+    - A fan case contains ONLY the hub account and its direct 1-hop
+      fan-in/out neighbors within the triggering time bin -- no further
+      expansion outward.
+    If the same account appears in both a cycle instance and a separate
+    fan cluster, that produces TWO separate cases, not one merged case --
+    this also keeps pattern_type single-valued per case, matching
+    docs/api-contract.md's enum ("cycle" | "scatter_gather" |
+    "unclassified" -- never a combination).
+
+    A fan case that would still exceed max_case_nodes (e.g. a hub with a
+    very high but still-flagged fan count) is capped: see _cap_fan_case.
 
     Args:
-        transactions_df: The full split the flags were computed on (same
-            frame passed to detect_cycles/detect_fan_in_out).
-        graph: Unused; accepted for consistency with the detector
-            functions this consumes.
-        cycle_flags: Boolean Series aligned to transactions_df's row
-            order, as returned by detect_cycles.
-        fan_flags: Boolean Series aligned to transactions_df's row order,
-            as returned by detect_fan_in_out.
+        transactions_df: The split to detect on (e.g. a test split).
+        graph: Unused; accepted for consistency with the detector functions.
+        max_hops: Forwarded to find_cycle_instances.
+        cycle_time_window_hours: Forwarded to find_cycle_instances as time_window_hours.
+        min_fan: Forwarded to find_fan_clusters.
+        fan_time_window_hours: Forwarded to find_fan_clusters as time_window_hours.
+        hub_degree_cap: Forwarded to find_fan_clusters.
+        max_case_nodes: Cases with more accounts than this are capped
+            (fan cases only; cycle instances are already bounded by max_hops).
 
     Returns:
         A list of case dicts, each with:
         - case_id: "CASE-0001", "CASE-0002", ... (sequential).
-        - accounts: set of account ids in the case.
+        - accounts: set of account ids in the case (<= max_case_nodes).
         - transactions: DataFrame slice of this case's transactions.
-        - detected_patterns: frozenset subset of {"cycle", "fan_in_out"}.
-        - pattern_type: API-contract enum derived from detected_patterns
-          ("cycle" if cycle evidence is present, else "scatter_gather").
+        - pattern_type: "cycle" or "scatter_gather".
         - start_time / end_time / time_span: this case's transactions'
           Timestamp range.
+        - truncation_note: present only if the case was capped; a string
+          like "showing largest 19 of 34 fan-out transfers (19 of 34
+          accounts)", meant to be folded into evidence_text.
     """
     df = transactions_df.reset_index(drop=True)
-    cycle_flags = pd.Series(cycle_flags).reset_index(drop=True)
-    fan_flags = pd.Series(fan_flags).reset_index(drop=True)
 
-    flagged_mask = cycle_flags | fan_flags
-    flagged_df = df.loc[flagged_mask]
+    cycle_instances = find_cycle_instances(df, max_hops=max_hops, time_window_hours=cycle_time_window_hours)
+    fan_clusters = find_fan_clusters(
+        df, min_fan=min_fan, time_window_hours=fan_time_window_hours, hub_degree_cap=hub_degree_cap
+    )
     logger.info(
-        "group_into_cases: clustering %d flagged transactions (%d cycle, %d fan_in_out)",
-        len(flagged_df), int(cycle_flags.sum()), int(fan_flags.sum()),
+        "group_into_cases: %d cycle instances, %d fan clusters -> %d cases",
+        len(cycle_instances), len(fan_clusters), len(cycle_instances) + len(fan_clusters),
     )
 
-    if flagged_df.empty:
-        return []
-
-    account_graph = nx.Graph()
-    account_graph.add_edges_from(zip(flagged_df["From Account"], flagged_df["To Account"]))
-
-    components = list(nx.connected_components(account_graph))
-    account_to_component: dict[str, int] = {}
-    for component_id, accounts in enumerate(components):
-        for account in accounts:
-            account_to_component[account] = component_id
-
-    rows_by_component: dict[int, list[int]] = defaultdict(list)
-    for row_idx, from_account in zip(flagged_df.index, flagged_df["From Account"]):
-        rows_by_component[account_to_component[from_account]].append(row_idx)
-
     cases = []
-    for case_num, (component_id, row_indices) in enumerate(sorted(rows_by_component.items()), start=1):
-        case_txs = df.loc[row_indices]
-        accounts = set(case_txs["From Account"]) | set(case_txs["To Account"])
+    case_num = 1
 
-        has_cycle = bool(cycle_flags.loc[row_indices].any())
-        has_fan = bool(fan_flags.loc[row_indices].any())
-        detected_patterns = frozenset(
-            p for p, present in (("cycle", has_cycle), ("fan_in_out", has_fan)) if present
-        )
-        pattern_type = "cycle" if "cycle" in detected_patterns else "scatter_gather"
+    for instance in cycle_instances:
+        case_txs = df.loc[instance["row_indices"]]
+        accounts = set(instance["accounts"])
+        cases.append(_finalize_case(f"CASE-{case_num:04d}", case_txs, accounts, "cycle", None))
+        case_num += 1
 
-        start_time = case_txs["Timestamp"].min()
-        end_time = case_txs["Timestamp"].max()
+    for cluster in fan_clusters:
+        case_txs = df.loc[cluster["row_indices"]]
+        hub_account = cluster["hub_account"]
+        neighbor_col = "To Account" if cluster["direction"] == "out" else "From Account"
+        accounts = {hub_account} | set(case_txs[neighbor_col])
 
-        cases.append({
-            "case_id": f"CASE-{case_num:04d}",
-            "accounts": accounts,
-            "transactions": case_txs,
-            # Connected components can merge an unrelated cycle cluster and
-            # fan cluster into one case (they share an account). These
-            # pattern-specific slices let compute_sub_scores and
-            # generate_evidence_text reason about "the cycle's" or "the fan
-            # burst's" own amounts/timing without being contaminated by the
-            # other pattern's unrelated transactions in a merged case.
-            "cycle_transactions": case_txs.loc[cycle_flags.loc[row_indices]],
-            "fan_transactions": case_txs.loc[fan_flags.loc[row_indices]],
-            "detected_patterns": detected_patterns,
-            "pattern_type": pattern_type,
-            "start_time": start_time,
-            "end_time": end_time,
-            "time_span": end_time - start_time,
-        })
+        truncation_note = None
+        if len(accounts) > max_case_nodes:
+            case_txs, accounts, truncation_note = _cap_fan_case(
+                case_txs, hub_account, cluster["direction"], max_case_nodes
+            )
 
-    component_sizes = sorted((len(c["accounts"]) for c in cases), reverse=True)
+        cases.append(_finalize_case(f"CASE-{case_num:04d}", case_txs, accounts, "scatter_gather", truncation_note))
+        case_num += 1
+
+    node_counts = sorted(len(c["accounts"]) for c in cases)
     logger.info(
-        "group_into_cases: %d cases from %d connected components (largest: %d accounts, "
-        "median: %d accounts)",
-        len(cases), len(components), component_sizes[0] if component_sizes else 0,
-        component_sizes[len(component_sizes) // 2] if component_sizes else 0,
+        "group_into_cases: node counts across %d cases -- min=%d, median=%d, max=%d, over_cap(>%d)=%d",
+        len(cases),
+        node_counts[0] if node_counts else 0,
+        node_counts[len(node_counts) // 2] if node_counts else 0,
+        node_counts[-1] if node_counts else 0,
+        max_case_nodes,
+        sum(1 for n in node_counts if n > max_case_nodes),
     )
     return cases
 
@@ -201,41 +247,38 @@ def compute_sub_scores(case: dict[str, Any]) -> dict[str, float]:
         out) scores 100; a pass-through account with one counterparty on
         each side (typical of a pure cycle hop) scores 0.
 
-    cycle_match: 100 if "cycle" is in the case's detected_patterns (i.e.
-        detect_cycles already confirmed a chronologically valid closed
-        loop for this case). Otherwise, 100 * (size of the largest
-        topological directed cycle among the case's accounts, ignoring
-        timestamp order / the detector's time window) / (total accounts
-        in the case) -- partial credit for a structure that could close a
-        loop even though it wasn't a confirmed instance. 0 if no cyclic
-        structure exists at all (e.g. a pure fan-out star).
+    cycle_match: 100 if the case's pattern_type is "cycle" (i.e.
+        find_cycle_instances already confirmed a chronologically valid
+        closed loop for this case -- group_into_cases only builds
+        "cycle" cases from confirmed instances). Otherwise (a
+        "scatter_gather" case), 100 * (size of the largest topological
+        directed cycle among the case's accounts, ignoring timestamp
+        order / the detector's time window) / (total accounts in the
+        case) -- partial credit for a structure that could close a loop
+        even though it wasn't a confirmed instance. 0 if no cyclic
+        structure exists at all (e.g. a pure fan-out star, the common case).
 
     Args:
-        case: A case dict as returned by group_into_cases.
+        case: A case dict as returned by group_into_cases (always a
+            single pattern_type -- "cycle" or "scatter_gather" -- so
+            case["transactions"] is already scoped to just that motif's
+            own transactions with no other pattern's noise mixed in).
 
     Returns:
         {"velocity": float, "fan_ratio": float, "cycle_match": float},
         each in [0, 100].
     """
     case_txs = case["transactions"]
+    is_cycle = case["pattern_type"] == "cycle"
 
-    reference_hours = CYCLE_REFERENCE_WINDOW_HOURS if "cycle" in case["detected_patterns"] else FAN_REFERENCE_WINDOW_HOURS
+    reference_hours = CYCLE_REFERENCE_WINDOW_HOURS if is_cycle else FAN_REFERENCE_WINDOW_HOURS
     time_span_hours = case["time_span"] / pd.Timedelta(hours=1)
     velocity = 100.0 * max(0.0, min(1.0, 1.0 - time_span_hours / reference_hours))
 
-    # Use the fan-specific transaction slice for the hub's degree, not the
-    # full case: a merged cycle+fan case would otherwise have its fan
-    # imbalance diluted (or distorted) by unrelated cycle hops through the
-    # same account. Pure-cycle cases have no fan_transactions, so fall back
-    # to the full (all-cycle) set, which correctly yields low imbalance.
-    fan_source = case["fan_transactions"] if len(case["fan_transactions"]) else case_txs
-    _, hub_out, hub_in = _hub_account_degrees(fan_source)
+    _, hub_out, hub_in = _hub_account_degrees(case_txs)
     fan_ratio = 100.0 * abs(hub_out - hub_in) / (hub_out + hub_in) if (hub_out + hub_in) else 0.0
 
-    if "cycle" in case["detected_patterns"]:
-        cycle_match = 100.0
-    else:
-        cycle_match = 100.0 * _largest_topological_cycle_fraction(case)
+    cycle_match = 100.0 if is_cycle else 100.0 * _largest_topological_cycle_fraction(case)
 
     return {"velocity": velocity, "fan_ratio": fan_ratio, "cycle_match": cycle_match}
 
@@ -302,66 +345,56 @@ def generate_evidence_text(case: dict[str, Any]) -> str:
 
     Follows the style used in backend/mock_data/cases_mock.json: a
     concrete, numbers-first description (amounts, account/hop counts,
-    time span), not a generic template -- branches on whether the case
-    has confirmed cycle evidence, fan-in/out evidence, or both.
+    time span), not a generic template. Since group_into_cases now scopes
+    every case to exactly one pattern_type, this is a straight branch on
+    that field rather than a multi-pattern merge -- case["transactions"]
+    is already exactly the cycle's hops, or exactly the fan cluster's
+    transfers, with nothing else mixed in.
 
     Args:
         case: A case dict as returned by group_into_cases.
 
     Returns:
-        A plain-language evidence string.
+        A plain-language evidence string. If the case was capped by
+        group_into_cases (case["truncation_note"] set), that's appended
+        as a parenthetical.
     """
     def fmt_span(hours: float) -> str:
         if hours < 1:
             return f"{hours * 60:.0f} minutes"
         return f"{hours:.1f} hours"
 
-    parts = []
+    case_txs = case["transactions"].sort_values("Timestamp")
+    span_hours = case["time_span"] / pd.Timedelta(hours=1)
 
-    if "cycle" in case["detected_patterns"]:
-        # Scoped to cycle_transactions specifically, not the full (possibly
-        # merged-with-an-unrelated-fan-cluster) case -- otherwise "first"/
-        # "last" amount can come from two unconnected transactions and
-        # produce a nonsensical retention percentage.
-        cycle_txs = case["cycle_transactions"].sort_values("Timestamp")
-        cycle_accounts = set(cycle_txs["From Account"]) | set(cycle_txs["To Account"])
-        cycle_span_hours = (cycle_txs["Timestamp"].max() - cycle_txs["Timestamp"].min()) / pd.Timedelta(hours=1)
-        first_amount = float(cycle_txs["Amount Paid"].iloc[0])
-        last_amount = float(cycle_txs["Amount Paid"].iloc[-1])
+    if case["pattern_type"] == "cycle":
+        account_count = len(case["accounts"])
+        first_amount = float(case_txs["Amount Paid"].iloc[0])
+        last_amount = float(case_txs["Amount Paid"].iloc[-1])
         retention_pct = 100.0 * last_amount / first_amount if first_amount else 0.0
-        parts.append(
-            f"${first_amount:,.2f} entered a closed {len(cycle_accounts)}-account cycle and returned to "
-            f"the originating account within {fmt_span(cycle_span_hours)}, retaining {retention_pct:.0f}% "
-            f"of its original value across {len(cycle_txs)} hops."
+        text = (
+            f"${first_amount:,.2f} entered a closed {account_count}-account cycle and returned to "
+            f"the originating account within {fmt_span(span_hours)}, retaining {retention_pct:.0f}% "
+            f"of its original value across {len(case_txs)} hops."
         )
-
-    if "fan_in_out" in case["detected_patterns"]:
-        fan_txs = case["fan_transactions"]
-        fan_amount = float(fan_txs["Amount Paid"].sum())
-        fan_span_hours = (fan_txs["Timestamp"].max() - fan_txs["Timestamp"].min()) / pd.Timedelta(hours=1)
-        hub_account, hub_out, hub_in = _hub_account_degrees(fan_txs)
+    else:
+        total_amount = float(case_txs["Amount Paid"].sum())
+        hub_account, hub_out, hub_in = _hub_account_degrees(case_txs)
         if hub_out >= hub_in:
-            parts.append(
-                f"${fan_amount:,.2f} total was scattered from account {hub_account} out to "
-                f"{hub_out} distinct accounts within {fmt_span(fan_span_hours)}."
+            text = (
+                f"${total_amount:,.2f} total was scattered from account {hub_account} out to "
+                f"{hub_out} distinct accounts within {fmt_span(span_hours)}."
             )
         else:
-            parts.append(
-                f"${fan_amount:,.2f} total was gathered into account {hub_account} from "
-                f"{hub_in} distinct accounts within {fmt_span(fan_span_hours)}."
+            text = (
+                f"${total_amount:,.2f} total was gathered into account {hub_account} from "
+                f"{hub_in} distinct accounts within {fmt_span(span_hours)}."
             )
 
-    if not parts:
-        case_txs = case["transactions"]
-        total_amount = float(case_txs["Amount Paid"].sum())
-        account_count = len(case["accounts"])
-        span_hours = case["time_span"] / pd.Timedelta(hours=1)
-        parts.append(
-            f"${total_amount:,.2f} moved across {account_count} accounts in {len(case_txs)} transactions "
-            f"within {fmt_span(span_hours)}; no confirmed cycle or fan-in/out structure was matched."
-        )
+    if case.get("truncation_note"):
+        text += f" ({case['truncation_note']}.)"
 
-    return " ".join(parts)
+    return text
 
 
 def _case_to_api_detail(
@@ -399,24 +432,21 @@ def _case_to_api_detail(
 
 if __name__ == "__main__":
     import json
+    from pathlib import Path
 
-    from ml.detection import detect_cycles, detect_fan_in_out
     from ml.labels import build_ground_truth
     from ml.preprocessing import load_patterns, load_transactions, time_based_split
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    data_dir = __import__("pathlib").Path(__file__).resolve().parent / "data"
+    data_dir = Path(__file__).resolve().parent / "data"
     transactions = load_transactions(str(data_dir / "HI-Small_Trans.csv"))
     patterns = load_patterns(str(data_dir / "HI-Small_Patterns.txt"))
     labeled = build_ground_truth(patterns, transactions)
     _, _, test_df = time_based_split(labeled)
 
     features = test_df.drop(columns=["is_laundering", "pattern_type"])
-    cycle_flags = detect_cycles(features, None)
-    fan_flags = detect_fan_in_out(features, None)
-
-    cases = group_into_cases(features, None, cycle_flags, fan_flags)
+    cases = group_into_cases(features, None)
 
     scored_cases = []
     for case in cases:
@@ -426,13 +456,21 @@ if __name__ == "__main__":
         evidence_text = generate_evidence_text(case)
         scored_cases.append((case, sub_scores, risk_score, risk_tier, evidence_text))
 
+    node_counts = pd.Series([len(c["accounts"]) for c, _, _, _, _ in scored_cases])
     risk_scores = pd.Series([rs for _, _, rs, _, _ in scored_cases])
     tier_counts = pd.Series([rt for _, _, _, rt, _ in scored_cases]).value_counts()
+    over_cap = int((node_counts > MAX_CASE_NODES).sum())
 
     print(f"\n=== Case scoring summary -- test split ===")
     print(f"total cases: {len(scored_cases):,}")
+
+    print(f"\nnode-count distribution (cap={MAX_CASE_NODES}):")
+    print(f"  min={node_counts.min()}  median={node_counts.median():.0f}  max={node_counts.max()}")
+    print(f"  cases exceeding {MAX_CASE_NODES} nodes: {over_cap}")
+
     print("\nrisk_score distribution:")
     print(risk_scores.describe().to_string())
+
     print("\ntier distribution:")
     for tier in ["monitor", "review", "str_ready"]:
         count = int(tier_counts.get(tier, 0))
@@ -450,11 +488,19 @@ if __name__ == "__main__":
         examples.append(sorted(by_tier["review"], key=lambda e: e[2])[len(by_tier["review"]) // 2])
     if by_tier["monitor"]:
         examples.append(sorted(by_tier["monitor"], key=lambda e: e[2])[len(by_tier["monitor"]) // 2])
-    both_pattern = [e for e in scored_cases if len(e[0]["detected_patterns"]) > 1]
-    if both_pattern:
-        examples.append(both_pattern[0])
+    truncated = [e for e in scored_cases if e[0].get("truncation_note")]
+    if truncated:
+        examples.append(truncated[0])
+    else:
+        cycle_examples = [e for e in scored_cases if e[0]["pattern_type"] == "cycle" and e not in examples]
+        if cycle_examples:
+            examples.append(cycle_examples[0])
 
     for case, sub_scores, risk_score, risk_tier, evidence_text in examples[:4]:
         detail = _case_to_api_detail(case, sub_scores, risk_score, risk_tier, evidence_text)
-        print(f"\n--- {detail['case_id']} ({risk_tier}, detected_patterns={sorted(case['detected_patterns'])}) ---")
+        note = f", {case['truncation_note']}" if case.get("truncation_note") else ""
+        print(
+            f"\n--- {detail['case_id']} ({risk_tier}, pattern_type={case['pattern_type']}, "
+            f"nodes={len(case['accounts'])}{note}) ---"
+        )
         print(json.dumps(detail, indent=2))
