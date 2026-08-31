@@ -9,6 +9,7 @@ labels from labels.py.
 """
 
 import logging
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -187,7 +188,12 @@ def compare_to_baseline(
 
 
 if __name__ == "__main__":
-    from ml.detection import baseline_naive_threshold, compute_percentile_threshold
+    from ml.detection import (
+        baseline_naive_threshold,
+        combined_structural_detector,
+        compute_percentile_threshold,
+        detect_cycles,
+    )
     from ml.labels import build_ground_truth
     from ml.preprocessing import load_cached_graph, load_patterns, load_transactions, time_based_split
 
@@ -213,16 +219,27 @@ if __name__ == "__main__":
     test_features = test_df.drop(columns=label_cols)
     test_labels = test_df[label_cols]
 
-    detector = lambda df: baseline_naive_threshold(df, graph=graph, threshold_amount=threshold)
-    metrics = evaluate_on_split(test_features, test_labels, detector)
+    detectors = {
+        "naive baseline (p99 amount)": lambda df: baseline_naive_threshold(
+            df, graph=graph, threshold_amount=threshold
+        ),
+        "cycle-only": lambda df: detect_cycles(df, graph),
+        "combined (cycle + fan-in/out)": lambda df: combined_structural_detector(df, graph),
+    }
 
-    print("\n=== Naive baseline (p99 Amount Paid threshold, fit on train) -- test split ===")
-    print(f"threshold_amount: {threshold:,.2f}")
-    print(f"test split size:  {len(test_df):,} transactions")
-    print(f"precision: {metrics['precision']:.4f}")
-    print(f"recall:    {metrics['recall']:.4f}")
-    print(f"f1:        {metrics['f1']:.4f}")
+    results = {}
+    for name, detector in detectors.items():
+        run_start = time.monotonic()
+        results[name] = evaluate_on_split(test_features, test_labels, detector)
+        results[name]["_runtime_s"] = time.monotonic() - run_start
 
-    print("\nPer-pattern-type recall (fraction of that type's transactions flagged):")
-    for ptype, recall in sorted(metrics["per_pattern_type_recall"].items()):
-        print(f"  {ptype:<16} {recall:.4f}")
+    print(f"\n=== Detector comparison -- test split ({len(test_df):,} transactions) ===")
+    for name, metrics in results.items():
+        print(f"\n--- {name} ---")
+        print(f"runtime:   {metrics['_runtime_s']:.2f}s")
+        print(f"precision: {metrics['precision']:.4f}")
+        print(f"recall:    {metrics['recall']:.4f}")
+        print(f"f1:        {metrics['f1']:.4f}")
+        print("per-pattern-type recall (fraction of that type's transactions flagged):")
+        for ptype, recall in sorted(metrics["per_pattern_type_recall"].items()):
+            print(f"  {ptype:<16} {recall:.4f}")
