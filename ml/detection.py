@@ -1,10 +1,89 @@
 """Detection logic: graph/account features -> risk scores and pattern classification.
 
-Not implemented yet. Function signatures and docstrings only.
+Detector functions (baseline_naive_threshold and, later, a structural
+heuristic) share a common (transactions_df, graph) signature and return
+a boolean pd.Series aligned to transactions_df's row order, so they're
+directly interchangeable in evaluate.evaluate_on_split without any
+caller-side branching. Everything below detect_cycles onward is not
+implemented yet -- signatures and docstrings only.
 """
+
+from __future__ import annotations
+
+import logging
 
 import networkx as nx
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_THRESHOLD_PERCENTILE = 99.0
+
+
+def compute_percentile_threshold(
+    transactions_df: pd.DataFrame,
+    percentile: float = DEFAULT_THRESHOLD_PERCENTILE,
+    amount_column: str = "Amount Paid",
+) -> float:
+    """Compute a data-driven flagging threshold from the amount distribution.
+
+    Args:
+        transactions_df: Transaction DataFrame containing amount_column.
+        percentile: Percentile (0-100) to use as the threshold. Defaults
+            to p99 -- a round-number threshold like "$10,000" would be
+            arbitrary given this dataset's amounts span many orders of
+            magnitude across currencies.
+        amount_column: Which amount column to compute the percentile over.
+
+    Returns:
+        The dollar (or currency-unit) value at the given percentile.
+    """
+    value = float(transactions_df[amount_column].quantile(percentile / 100))
+    logger.info("p%.1f of '%s' = %.2f", percentile, amount_column, value)
+    return value
+
+
+def baseline_naive_threshold(
+    transactions_df: pd.DataFrame,
+    graph: nx.MultiDiGraph | None = None,
+    threshold_amount: float | None = None,
+) -> pd.Series:
+    """Flag any single transaction whose amount exceeds a threshold.
+
+    This is the naive baseline: it looks at each transaction in
+    isolation and ignores graph structure entirely (graph is accepted
+    only so this function's signature matches other detectors and can be
+    swapped in/out of evaluate.evaluate_on_split without special-casing).
+
+    Args:
+        transactions_df: Transaction DataFrame (a full split or subset)
+            with an "Amount Paid" column.
+        graph: Unused by this detector; present for signature parity with
+            future structural detectors.
+        threshold_amount: Dollar amount above which a transaction is
+            flagged. If None, defaults to compute_percentile_threshold's
+            p99 of transactions_df's own "Amount Paid" column -- callers
+            that want to avoid fitting the threshold on evaluation data
+            should compute it on a train split and pass it in explicitly.
+
+    Returns:
+        A boolean pd.Series aligned to transactions_df's row order/index,
+        True where the transaction is flagged.
+    """
+    if threshold_amount is None:
+        threshold_amount = compute_percentile_threshold(transactions_df)
+        logger.info(
+            "No threshold_amount given; defaulting to p%.1f of this data's own Amount Paid: %.2f",
+            DEFAULT_THRESHOLD_PERCENTILE, threshold_amount,
+        )
+
+    flags = transactions_df["Amount Paid"] > threshold_amount
+    logger.info(
+        "Naive threshold baseline (Amount Paid > %.2f): flagged %d / %d transactions (%.4f%%)",
+        threshold_amount, int(flags.sum()), len(transactions_df),
+        100 * flags.mean() if len(flags) else 0.0,
+    )
+    return flags
 
 
 def detect_cycles(graph: nx.MultiDiGraph, max_length: int = 6) -> list[list[str]]:
