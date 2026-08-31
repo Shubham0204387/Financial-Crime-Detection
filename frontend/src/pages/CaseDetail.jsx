@@ -47,7 +47,7 @@ export default function CaseDetail() {
       </Link>
 
       {status === 'loading' && (
-        <div className="state-message">
+        <div className="state-message state-message--loading">
           <span className="spinner" aria-hidden="true" />
           <p>Loading case…</p>
         </div>
@@ -62,7 +62,7 @@ export default function CaseDetail() {
         </div>
       )}
 
-      {status === 'not-found' && <p className="state-message">Case not found</p>}
+      {status === 'not-found' && <p className="state-message state-message--empty">Case not found</p>}
 
       {status === 'ready' && detail && (
         <>
