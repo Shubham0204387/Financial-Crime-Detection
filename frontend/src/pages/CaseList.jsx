@@ -34,10 +34,11 @@ function formatDate(isoString) {
 export default function CaseList() {
   const [status, setStatus] = useState('loading')
   const [cases, setCases] = useState([])
-  const [error, setError] = useState(null)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
+    setStatus('loading')
 
     fetchCases()
       .then((data) => {
@@ -45,31 +46,38 @@ export default function CaseList() {
         setCases(sortByRiskTier(data))
         setStatus('ready')
       })
-      .catch((err) => {
+      .catch(() => {
         if (cancelled) return
-        setError(err.message)
         setStatus('error')
       })
 
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [retryKey])
 
   if (status === 'loading') {
-    return <p className="state-message">Loading cases…</p>
+    return (
+      <div className="state-message">
+        <span className="spinner" aria-hidden="true" />
+        <p>Loading cases…</p>
+      </div>
+    )
   }
 
   if (status === 'error') {
     return (
-      <p className="state-message state-message--error">
-        Couldn&apos;t load cases: {error}
-      </p>
+      <div className="state-message state-message--error">
+        <p>Something went wrong loading cases — try again.</p>
+        <button type="button" className="retry-button" onClick={() => setRetryKey((k) => k + 1)}>
+          Retry
+        </button>
+      </div>
     )
   }
 
   if (cases.length === 0) {
-    return <p className="state-message">No cases in this window</p>
+    return <p className="state-message">No patterns detected in this window</p>
   }
 
   return (

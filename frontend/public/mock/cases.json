@@ -27,6 +27,13 @@
       "risk_score": 87,
       "account_count": 4,
       "flagged_at": "2026-08-25T11:22:00Z"
+    },
+    {
+      "case_id": "CASE-1005",
+      "risk_tier": "review",
+      "risk_score": 50,
+      "account_count": 3,
+      "flagged_at": "2026-08-29T09:40:00Z"
     }
   ],
   "case_details": {
