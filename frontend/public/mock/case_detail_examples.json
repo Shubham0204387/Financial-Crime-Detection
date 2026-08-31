@@ -103,5 +103,28 @@
     ],
     "evidence_text": "₹30,000 originated from Account D1 and circulated through three related accounts before returning to Account D1 within two hours, with negligible value loss at each hop.",
     "str_deadline": "2026-09-06T00:00:00Z"
+  },
+  "CASE-1005": {
+    "case_id": "CASE-1005",
+    "risk_tier": "review",
+    "risk_score": 50,
+    "sub_scores": {
+      "velocity": 45,
+      "fan_ratio": 48,
+      "cycle_match": 33
+    },
+    "pattern_type": "unclassified",
+    "nodes": [
+      { "id": "ACC-E1", "label": "Account 1123" },
+      { "id": "ACC-E2", "label": "Account 2234" },
+      { "id": "ACC-E3", "label": "Account 3345" }
+    ],
+    "edges": [
+      { "source": "ACC-E1", "target": "ACC-E2", "amount": 8200.0, "timestamp": "2026-08-27T11:10:00Z" },
+      { "source": "ACC-E2", "target": "ACC-E3", "amount": 7900.0, "timestamp": "2026-08-29T09:40:00Z" }
+    ],
+    "evidence_text": "₹8,200 moved through two hops with timing and amounts that partially resemble structuring, but the account history is too short to establish a repeating pattern.",
+    "note": "borderline: recommend manual review",
+    "str_deadline": null
   }
 }

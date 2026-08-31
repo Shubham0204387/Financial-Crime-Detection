@@ -1,6 +1,7 @@
 import { Routes, Route, Link } from 'react-router-dom'
 import CaseList from './pages/CaseList'
 import CaseDetail from './pages/CaseDetail'
+import DevMockToolbar from './components/DevMockToolbar'
 
 function App() {
   return (
@@ -9,6 +10,7 @@ function App() {
         <Link to="/">
           <h1>Financial Crime Detection</h1>
         </Link>
+        {import.meta.env.DEV && <DevMockToolbar />}
       </header>
       <main>
         <Routes>
