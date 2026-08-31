@@ -19,9 +19,9 @@ class CaseSummary(BaseModel):
 
 
 class SubScores(BaseModel):
-    velocity: int
-    fan_ratio: int
-    cycle_match: int
+    velocity: float
+    fan_ratio: float
+    cycle_match: float
 
 
 class Node(BaseModel):
