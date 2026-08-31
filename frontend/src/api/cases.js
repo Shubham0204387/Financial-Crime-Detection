@@ -1,14 +1,14 @@
-import { MOCK_CASES_URL, MOCK_CASES_EMPTY_URL, MOCK_ERROR_URL } from '../config'
+import { API_BASE_URL, MOCK_CASES_EMPTY_URL, MOCK_ERROR_URL } from '../config'
 import { getMockMode } from '../mock/mockMode'
 import { simulateLatency } from '../mock/simulateLatency'
 
-// Reads from static mock data for now. Once the real backend is ready, swap
-// this to `fetch(`${API_BASE_URL}/cases`)` — the response shape already
-// matches GET /cases per docs/api-contract.md.
+// Normal mode hits the real backend (GET /cases per docs/api-contract.md).
+// ?mock=empty / ?mock=error still short-circuit to the static dev fixtures
+// so the toolbar's simulated states work even with the backend offline.
 export async function fetchCases() {
   const mode = getMockMode()
   const url =
-    mode === 'error' ? MOCK_ERROR_URL : mode === 'empty' ? MOCK_CASES_EMPTY_URL : MOCK_CASES_URL
+    mode === 'error' ? MOCK_ERROR_URL : mode === 'empty' ? MOCK_CASES_EMPTY_URL : `${API_BASE_URL}/cases`
 
   await simulateLatency()
 
