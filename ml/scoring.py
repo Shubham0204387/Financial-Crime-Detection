@@ -15,6 +15,7 @@ requires for GET /cases/{case_id}.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import networkx as nx
@@ -23,6 +24,17 @@ import pandas as pd
 from ml.detection import find_cycle_instances, find_fan_clusters
 
 logger = logging.getLogger(__name__)
+
+
+def _add_working_days(start: datetime, working_days: int) -> datetime:
+    """Add `working_days` weekdays (Mon-Fri) to `start`, skipping weekends."""
+    current = start
+    added = 0
+    while added < working_days:
+        current += timedelta(days=1)
+        if current.weekday() < 5:
+            added += 1
+    return current
 
 # A case with more nodes than this gets capped (see _cap_fan_case) --
 # past this size a subgraph stops being visually/analytically useful for
@@ -412,10 +424,11 @@ def case_to_api_detail(
         }
         for _, row in case_txs.sort_values("Timestamp").iterrows()
     ]
-    # No regulatory deadline data exists in this dataset; 30 days from the
-    # case's last transaction is a placeholder consistent with typical
-    # STR filing windows, not a derived/observed value.
-    str_deadline = (case["end_time"] + pd.Timedelta(days=30)).isoformat() + "Z"
+    # PMLA/FIU-IND requires filing within 7 working days. The dataset is
+    # historical (Sept 2022), so the deadline is relative to real wall-clock
+    # time (when the pipeline runs), not any timestamp from the dataset --
+    # otherwise every str_ready case's deadline would already be in the past.
+    str_deadline = _add_working_days(datetime.now(timezone.utc), 7).replace(tzinfo=None).isoformat() + "Z"
 
     return {
         "case_id": case["case_id"],
