@@ -89,6 +89,8 @@ export default function CaseDetail() {
               evidenceText={detail.evidence_text}
               subScores={detail.sub_scores}
               patternType={detail.pattern_type}
+              riskTier={detail.risk_tier}
+              riskScore={detail.risk_score}
             />
           </div>
 

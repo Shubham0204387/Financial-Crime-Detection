@@ -601,6 +601,16 @@ button:focus-visible {
   background: var(--panel-bg);
 }
 
+.evidence-verdict {
+  margin: 0 0 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text);
+}
+
 .pattern-tag {
   display: inline-flex;
   align-items: center;
@@ -653,6 +663,43 @@ button:focus-visible {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--text);
+}
+
+.sub-score-label {
+  position: relative;
+  border-bottom: 1px dotted var(--text-muted);
+  cursor: help;
+}
+
+.sub-score-label::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  z-index: 5;
+  margin-bottom: 8px;
+  width: max-content;
+  max-width: 230px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  white-space: normal;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--transition), transform var(--transition);
+  pointer-events: none;
+}
+
+.sub-score-label:hover::after,
+.sub-score-label:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .sub-score-bar {
