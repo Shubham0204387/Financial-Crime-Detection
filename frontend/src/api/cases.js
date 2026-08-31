@@ -6,11 +6,11 @@ import { simulateLatency } from '../mock/simulateLatency'
 // this to `fetch(`${API_BASE_URL}/cases`)` — the response shape already
 // matches GET /cases per docs/api-contract.md.
 export async function fetchCases() {
-  await simulateLatency()
-
   const mode = getMockMode()
   const url =
     mode === 'error' ? MOCK_ERROR_URL : mode === 'empty' ? MOCK_CASES_EMPTY_URL : MOCK_CASES_URL
+
+  await simulateLatency()
 
   const response = await fetch(url)
   if (!response.ok) {

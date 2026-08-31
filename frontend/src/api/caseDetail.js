@@ -7,9 +7,9 @@ import { simulateLatency } from '../mock/simulateLatency'
 // already matches GET /cases/{case_id} per docs/api-contract.md.
 // Returns null when the case_id has no matching detail record.
 export async function fetchCaseDetail(caseId) {
-  await simulateLatency()
-
   const url = getMockMode() === 'error' ? MOCK_ERROR_URL : MOCK_CASE_DETAILS_URL
+
+  await simulateLatency()
 
   const response = await fetch(url)
   if (!response.ok) {

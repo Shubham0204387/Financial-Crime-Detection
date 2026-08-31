@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { fetchCaseDetail } from '../api/caseDetail'
 import CaseGraph from '../components/CaseGraph'
 import EvidencePanel from '../components/EvidencePanel'
@@ -14,6 +14,8 @@ const RISK_TIER_LABEL = {
 
 export default function CaseDetail() {
   const { caseId } = useParams()
+  const [searchParams] = useSearchParams()
+  const mockMode = searchParams.get('mock')
   const [status, setStatus] = useState('loading')
   const [detail, setDetail] = useState(null)
   const [retryKey, setRetryKey] = useState(0)
@@ -36,7 +38,7 @@ export default function CaseDetail() {
     return () => {
       cancelled = true
     }
-  }, [caseId, retryKey])
+  }, [caseId, mockMode, retryKey])
 
   return (
     <div className="case-detail">
