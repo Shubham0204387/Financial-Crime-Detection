@@ -1,6 +1,10 @@
 # ML local data (exceeds GitHub's 100MB file size limit)
 ml/data/HI-Small_Trans.csv
 
+# ML regeneratable cache (rebuilt from source data, not source itself)
+ml/data/processed/
+ml/.venv/
+
 # Python
 __pycache__/
 *.pyc
