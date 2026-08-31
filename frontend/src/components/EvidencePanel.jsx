@@ -12,6 +12,17 @@ const PATTERN_LABELS = {
   unclassified: 'Unclassified',
 }
 
+function NetworkIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="5" cy="6" r="2.5" />
+      <circle cx="19" cy="6" r="2.5" />
+      <circle cx="12" cy="18" r="2.5" />
+      <path d="M7 7.5 10 16M17 7.5 14 16M7.5 6h9" />
+    </svg>
+  )
+}
+
 export default function EvidencePanel({ evidenceText, subScores, patternType }) {
   const [animated, setAnimated] = useState(false)
 
@@ -24,6 +35,7 @@ export default function EvidencePanel({ evidenceText, subScores, patternType }) 
   return (
     <div className="evidence-panel">
       <span className={`pattern-tag pattern-tag--${patternType}`}>
+        <NetworkIcon />
         {PATTERN_LABELS[patternType] ?? patternType}
       </span>
 

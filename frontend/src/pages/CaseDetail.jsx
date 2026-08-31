@@ -5,6 +5,7 @@ import CaseGraph from '../components/CaseGraph'
 import EvidencePanel from '../components/EvidencePanel'
 import Countdown from '../components/Countdown'
 import DraftSTR from '../components/DraftSTR'
+import RiskGauge from '../components/RiskGauge'
 
 const RISK_TIER_LABEL = {
   str_ready: 'STR Ready',
@@ -71,7 +72,7 @@ export default function CaseDetail() {
             <span className={`risk-badge risk-badge--${detail.risk_tier}`}>
               {RISK_TIER_LABEL[detail.risk_tier] ?? detail.risk_tier}
             </span>
-            <span className="risk-score">Risk score: {detail.risk_score}</span>
+            <RiskGauge score={detail.risk_score} tier={detail.risk_tier} />
           </div>
 
           {detail.risk_tier === 'str_ready' && <Countdown deadline={detail.str_deadline} />}
@@ -83,7 +84,7 @@ export default function CaseDetail() {
           )}
 
           <div className="case-detail-body">
-            <CaseGraph nodes={detail.nodes} edges={detail.edges} />
+            <CaseGraph nodes={detail.nodes} edges={detail.edges} patternType={detail.pattern_type} />
             <EvidencePanel
               evidenceText={detail.evidence_text}
               subScores={detail.sub_scores}
