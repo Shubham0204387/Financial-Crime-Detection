@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { fetchCases } from '../api/cases'
+import NetworkBackground from '../components/NetworkBackground'
 
 const RISK_TIER_ORDER = { str_ready: 0, review: 1, monitor: 2 }
 const PAGE_SIZE = 25
@@ -122,7 +123,11 @@ export default function CaseList() {
           </thead>
           <tbody>
             {pageCases.map((c, i) => (
-              <tr key={c.case_id} className="case-row" style={{ animationDelay: `${Math.min(i, 10) * 60}ms` }}>
+              <tr
+                key={c.case_id}
+                className={`case-row case-row--${c.risk_tier}`}
+                style={{ animationDelay: `${Math.min(i, 10) * 60}ms` }}
+              >
                 <td>
                   <Link to={`/cases/${c.case_id}`}>{c.case_id}</Link>
                 </td>
@@ -163,9 +168,12 @@ export default function CaseList() {
   }
 
   return (
-    <div className="case-list">
-      <LiveIndicator />
-      {content}
-    </div>
+    <>
+      <NetworkBackground cases={cases} />
+      <div className="case-list">
+        <LiveIndicator />
+        {content}
+      </div>
+    </>
   )
 }

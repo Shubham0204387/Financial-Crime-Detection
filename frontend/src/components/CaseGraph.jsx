@@ -7,7 +7,14 @@ const currencyFormatter = new Intl.NumberFormat('en-IN', {
   maximumFractionDigits: 0,
 })
 
-export default function CaseGraph({ nodes, edges }) {
+const PATTERN_COLORS = {
+  cycle: '#A78BFA',
+  scatter_gather: '#38BDF8',
+  unclassified: '#94A3B8',
+}
+
+export default function CaseGraph({ nodes, edges, patternType }) {
+  const accentColor = PATTERN_COLORS[patternType] ?? '#2DD4BF'
   const containerRef = useRef(null)
   const [width, setWidth] = useState(0)
 
@@ -44,16 +51,20 @@ export default function CaseGraph({ nodes, edges }) {
           nodeRelSize={5}
           linkDirectionalArrowLength={7}
           linkDirectionalArrowRelPos={1}
-          linkDirectionalArrowColor={() => '#2DD4BF'}
+          linkDirectionalArrowColor={() => accentColor}
           linkCurvature={0.25}
           linkColor={() => 'rgba(91, 98, 114, 0.6)'}
+          linkDirectionalParticles={2}
+          linkDirectionalParticleSpeed={0.004}
+          linkDirectionalParticleWidth={2.5}
+          linkDirectionalParticleColor={() => accentColor}
           linkLabel={(link) => `${link.source.id ?? link.source} → ${link.target.id ?? link.target}: ${currencyFormatter.format(link.amount)}`}
           nodeLabel={(node) => node.label}
           nodeCanvasObject={(node, ctx, globalScale) => {
             const radius = 6
             ctx.beginPath()
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false)
-            ctx.fillStyle = '#2DD4BF'
+            ctx.fillStyle = accentColor
             ctx.fill()
 
             const fontSize = 11 / globalScale
