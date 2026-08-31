@@ -397,7 +397,7 @@ def generate_evidence_text(case: dict[str, Any]) -> str:
     return text
 
 
-def _case_to_api_detail(
+def case_to_api_detail(
     case: dict[str, Any], sub_scores: dict[str, float], risk_score: int, risk_tier: str, evidence_text: str
 ) -> dict[str, Any]:
     """Shape a scored case into the GET /cases/{case_id} response, per docs/api-contract.md."""
@@ -497,7 +497,7 @@ if __name__ == "__main__":
             examples.append(cycle_examples[0])
 
     for case, sub_scores, risk_score, risk_tier, evidence_text in examples[:4]:
-        detail = _case_to_api_detail(case, sub_scores, risk_score, risk_tier, evidence_text)
+        detail = case_to_api_detail(case, sub_scores, risk_score, risk_tier, evidence_text)
         note = f", {case['truncation_note']}" if case.get("truncation_note") else ""
         print(
             f"\n--- {detail['case_id']} ({risk_tier}, pattern_type={case['pattern_type']}, "
