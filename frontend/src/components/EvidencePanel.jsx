@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 const SUB_SCORE_LABELS = {
   velocity: 'Velocity',
   fan_ratio: 'Fan Ratio',
@@ -11,6 +13,14 @@ const PATTERN_LABELS = {
 }
 
 export default function EvidencePanel({ evidenceText, subScores, patternType }) {
+  const [animated, setAnimated] = useState(false)
+
+  useEffect(() => {
+    setAnimated(false)
+    const timer = setTimeout(() => setAnimated(true), 50)
+    return () => clearTimeout(timer)
+  }, [subScores])
+
   return (
     <div className="evidence-panel">
       <span className={`pattern-tag pattern-tag--${patternType}`}>
@@ -27,7 +37,10 @@ export default function EvidencePanel({ evidenceText, subScores, patternType }) 
               <span>{subScores[key]}</span>
             </div>
             <div className="sub-score-bar">
-              <div className="sub-score-bar-fill" style={{ width: `${subScores[key]}%` }} />
+              <div
+                className="sub-score-bar-fill"
+                style={{ width: animated ? `${subScores[key]}%` : '0%' }}
+              />
             </div>
           </div>
         ))}
