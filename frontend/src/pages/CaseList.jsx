@@ -81,7 +81,7 @@ export default function CaseList() {
 
   if (status === 'loading') {
     content = (
-      <div className="state-message">
+      <div className="state-message state-message--loading">
         <span className="spinner" aria-hidden="true" />
         <p>Loading cases…</p>
       </div>
@@ -96,7 +96,7 @@ export default function CaseList() {
       </div>
     )
   } else if (cases.length === 0) {
-    content = <p className="state-message">No patterns detected in this window</p>
+    content = <p className="state-message state-message--empty">No patterns detected in this window</p>
   } else {
     content = (
       <table className="case-table">

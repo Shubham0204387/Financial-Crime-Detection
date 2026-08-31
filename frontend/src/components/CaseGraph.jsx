@@ -44,23 +44,23 @@ export default function CaseGraph({ nodes, edges }) {
           nodeRelSize={5}
           linkDirectionalArrowLength={7}
           linkDirectionalArrowRelPos={1}
-          linkDirectionalArrowColor={() => '#e05d44'}
+          linkDirectionalArrowColor={() => '#2DD4BF'}
           linkCurvature={0.25}
-          linkColor={() => '#b3aebc'}
+          linkColor={() => 'rgba(91, 98, 114, 0.6)'}
           linkLabel={(link) => `${link.source.id ?? link.source} → ${link.target.id ?? link.target}: ${currencyFormatter.format(link.amount)}`}
           nodeLabel={(node) => node.label}
           nodeCanvasObject={(node, ctx, globalScale) => {
             const radius = 6
             ctx.beginPath()
             ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false)
-            ctx.fillStyle = '#5b6cf9'
+            ctx.fillStyle = '#2DD4BF'
             ctx.fill()
 
             const fontSize = 11 / globalScale
-            ctx.font = `${fontSize}px system-ui, sans-serif`
+            ctx.font = `${fontSize}px 'JetBrains Mono', ui-monospace, monospace`
             ctx.textAlign = 'center'
             ctx.textBaseline = 'top'
-            ctx.fillStyle = '#4b4a52'
+            ctx.fillStyle = '#8B92A5'
             ctx.fillText(node.label, node.x, node.y + radius + 2)
           }}
           cooldownTicks={80}
