@@ -108,13 +108,12 @@ def _time_windows(min_ts: pd.Timestamp, max_ts: pd.Timestamp, window_hours: floa
         start += step
 
 
-def detect_cycles(
+def find_cycle_instances(
     transactions_df: pd.DataFrame,
-    graph: nx.MultiDiGraph | None = None,
     max_hops: int = 6,
     time_window_hours: float = 48,
-) -> pd.Series:
-    """Flag transactions that are part of a short directed money-flow cycle.
+) -> list[dict]:
+    """Find concrete, chronologically-valid cycle instances (the data detect_cycles flattens).
 
     Searches for account-level cycles (A -> B -> ... -> A) of at most
     max_hops accounts, then requires a concrete chronological instance:
@@ -122,11 +121,7 @@ def detect_cycles(
     than the previous hop's, with the whole loop completing within
     time_window_hours. A same-day round-trip is a much stronger
     laundering signal than accounts that happen to be mutually connected
-    months apart, so this constraint is load-bearing, not incidental --
-    it's also what "flagged as part of a detected cycle" is scoped to:
-    only the specific transactions realizing a valid chronological
-    instance are flagged, not every transaction between any two accounts
-    that happen to sit on a cycle.
+    months apart, so this constraint is load-bearing, not incidental.
 
     Full-graph cycle enumeration (nx.simple_cycles on the whole 5M-edge
     dataset) is intractable, so this searches window by window: each
@@ -135,38 +130,44 @@ def detect_cycles(
     while still guaranteeing full coverage of any genuine
     <= time_window_hours cycle.
 
+    detect_cycles (below) is a thin wrapper over this that flattens the
+    instance list into a per-transaction boolean flag, for callers (like
+    evaluate.py) that only need "was this transaction part of some
+    cycle". ml/scoring.py's group_into_cases uses this function directly,
+    since it needs to build one case per distinct instance rather than
+    one undifferentiated flag.
+
     Args:
         transactions_df: Transaction rows to scan (a full split or
             subset), needs Timestamp, From Account, To Account.
-        graph: Unused. The search is windowed directly off
-            transactions_df rather than the full precomputed graph,
-            since transactions_df is typically a time-bounded split and
-            the full graph would include edges outside it. Present for
-            signature parity with other detectors.
         max_hops: Maximum number of accounts in a candidate cycle.
         time_window_hours: Maximum span, in hours, between a cycle
             instance's first and last transaction for it to count.
 
     Returns:
-        A boolean pd.Series aligned to transactions_df's row order/index,
-        True for transactions that are part of at least one detected
-        cycle instance.
+        A list of instance dicts, each with:
+        - accounts: the cycle's account ids, in hop order.
+        - row_indices: transactions_df row indices realizing each hop,
+          in the same order as accounts (row_indices[i] is the
+          transaction from accounts[i] to accounts[(i+1) % len]).
+        - start_time / end_time: the instance's first/last hop timestamp.
     """
-    start_time = time.monotonic()
+    start_time_monotonic = time.monotonic()
     df = transactions_df.reset_index(drop=True)
-    flagged = pd.Series(False, index=df.index)
+    instances: list[dict] = []
 
     if df.empty:
-        return flagged
+        return instances
 
     min_ts, max_ts = df["Timestamp"].min(), df["Timestamp"].max()
     windows = list(_time_windows(min_ts, max_ts, time_window_hours))
     logger.info(
-        "detect_cycles: scanning %d overlapping %.0fh windows (step %.0fh) over %d transactions",
+        "find_cycle_instances: scanning %d overlapping %.0fh windows (step %.0fh) over %d transactions",
         len(windows), 2 * time_window_hours, time_window_hours, len(df),
     )
 
-    cycle_instances = 0
+    seen_row_sets: set[frozenset] = set()
+
     for window_idx, (w_start, w_end) in enumerate(windows):
         window_start_time = time.monotonic()
         window_mask = (df["Timestamp"] >= w_start) & (df["Timestamp"] < w_end)
@@ -199,6 +200,7 @@ def detect_cycles(
             # the first one that produces a valid non-decreasing chain of
             # actual transactions all the way around.
             instance = None
+            rotated_accounts = None
             for rotation in range(len(cycle)):
                 rotated = cycle[rotation:] + cycle[:rotation]
                 hops = list(zip(rotated, rotated[1:] + rotated[:1]))
@@ -218,6 +220,7 @@ def detect_cycles(
                     candidate.append(chosen)
                 if valid:
                     instance = candidate
+                    rotated_accounts = rotated
                     break
 
             if instance is None:
@@ -225,39 +228,98 @@ def detect_cycles(
             if instance[-1][0] - instance[0][0] > pd.Timedelta(hours=time_window_hours):
                 continue
 
-            for _, row_idx in instance:
-                flagged.at[row_idx] = True
+            # The overlapping windows can rediscover the same real-world
+            # instance more than once; dedupe by its exact set of
+            # transaction rows so it's only counted/cased once.
+            row_indices = [row_idx for _, row_idx in instance]
+            key = frozenset(row_indices)
+            if key in seen_row_sets:
+                continue
+            seen_row_sets.add(key)
+
+            instances.append({
+                "accounts": rotated_accounts,
+                "row_indices": row_indices,
+                "start_time": instance[0][0],
+                "end_time": instance[-1][0],
+            })
             window_cycle_count += 1
 
-        cycle_instances += window_cycle_count
         logger.info(
-            "  window %d/%d [%s -> %s): %d transactions, %d cycle instances, %.2fs",
+            "  window %d/%d [%s -> %s): %d transactions, %d new cycle instances, %.2fs",
             window_idx + 1, len(windows), w_start, w_end,
             len(window_df), window_cycle_count, time.monotonic() - window_start_time,
         )
 
-    elapsed = time.monotonic() - start_time
     logger.info(
-        "detect_cycles: flagged %d / %d transactions (%.4f%%) across %d cycle instances in %.2fs",
-        int(flagged.sum()), len(df), 100 * flagged.mean() if len(df) else 0.0, cycle_instances, elapsed,
+        "find_cycle_instances: found %d distinct cycle instances in %.2fs",
+        len(instances), time.monotonic() - start_time_monotonic,
+    )
+    return instances
+
+
+def detect_cycles(
+    transactions_df: pd.DataFrame,
+    graph: nx.MultiDiGraph | None = None,
+    max_hops: int = 6,
+    time_window_hours: float = 48,
+) -> pd.Series:
+    """Flag transactions that are part of a short directed money-flow cycle.
+
+    A thin wrapper over find_cycle_instances: flattens its instance list
+    into a single per-transaction boolean flag. See find_cycle_instances
+    for the detection logic itself; use that function directly (as
+    ml.scoring.group_into_cases does) when you need to know which
+    transactions belong to the *same* instance, not just that they're
+    part of *some* cycle.
+
+    Args:
+        transactions_df: Transaction rows to scan (a full split or
+            subset), needs Timestamp, From Account, To Account.
+        graph: Unused. The search is windowed directly off
+            transactions_df rather than the full precomputed graph,
+            since transactions_df is typically a time-bounded split and
+            the full graph would include edges outside it. Present for
+            signature parity with other detectors.
+        max_hops: Forwarded to find_cycle_instances.
+        time_window_hours: Forwarded to find_cycle_instances.
+
+    Returns:
+        A boolean pd.Series aligned to transactions_df's row order/index,
+        True for transactions that are part of at least one detected
+        cycle instance.
+    """
+    df = transactions_df.reset_index(drop=True)
+    flagged = pd.Series(False, index=df.index)
+    if df.empty:
+        return flagged
+
+    instances = find_cycle_instances(df, max_hops=max_hops, time_window_hours=time_window_hours)
+    for instance in instances:
+        for row_idx in instance["row_indices"]:
+            flagged.at[row_idx] = True
+
+    logger.info(
+        "detect_cycles: flagged %d / %d transactions (%.4f%%) across %d cycle instances",
+        int(flagged.sum()), len(df), 100 * flagged.mean() if len(df) else 0.0, len(instances),
     )
     return flagged
 
 
-def detect_fan_in_out(
+def find_fan_clusters(
     transactions_df: pd.DataFrame,
-    graph: nx.MultiDiGraph | None = None,
     min_fan: int = 5,
     time_window_hours: float = 12,
     hub_degree_cap: int = 30,
-) -> pd.Series:
-    """Flag transactions where an account fans in/out to many counterparties fast.
+) -> list[dict]:
+    """Find concrete fan-in/out clusters (the data detect_fan_in_out flattens).
 
-    An account that sends to (or receives from) >= min_fan distinct
-    counterparties within time_window_hours is flagged, along with every
-    transaction that contributed to that count -- a structuring/smurfing
-    signal (one source scattering funds to many accounts, or many
-    accounts gathering into one).
+    A cluster is one (hub account, time bin, direction) combination that
+    meets min_fan -- e.g. "account X sent to 7 distinct accounts in bin
+    3" is one cluster, containing exactly those transactions. An account
+    that trips both fan-out and fan-in in the same bin produces two
+    separate clusters (they're different evidence, even if the hub
+    overlaps).
 
     Accounts whose TOTAL distinct-counterparty count across all of
     transactions_df (not just one window) exceeds hub_degree_cap are
@@ -276,16 +338,21 @@ def detect_fan_in_out(
     recall about 11x over the naive amount-threshold baseline.
 
     Uses fixed, non-overlapping time_window_hours-wide bins, unlike
-    detect_cycles' overlapping windows. That's a deliberate simplification:
-    fan-in/out is a count threshold, not an exact structural match, so an
-    occasional burst split across a bin boundary just becomes two smaller
-    (possibly sub-threshold) bursts instead of one -- a soft miss, not a
-    correctness bug the way splitting a cycle's hops would be.
+    find_cycle_instances' overlapping windows. That's a deliberate
+    simplification: fan-in/out is a count threshold, not an exact
+    structural match, so an occasional burst split across a bin boundary
+    just becomes two smaller (possibly sub-threshold) bursts instead of
+    one -- a soft miss, not a correctness bug the way splitting a cycle's
+    hops would be.
+
+    detect_fan_in_out (below) is a thin wrapper over this that flattens
+    the cluster list into a per-transaction boolean flag. ml/scoring.py's
+    group_into_cases uses this function directly, since it needs one case
+    per cluster, not one undifferentiated flag.
 
     Args:
         transactions_df: Transaction rows to scan (a full split or
             subset), needs Timestamp, From Account, To Account.
-        graph: Unused; present for signature parity with other detectors.
         min_fan: Minimum distinct counterparties within a bin to flag an
             account as fanning in/out.
         time_window_hours: Width of each time bin, in hours.
@@ -294,13 +361,17 @@ def detect_fan_in_out(
             treated as infrastructure/hub accounts and never flagged.
 
     Returns:
-        A boolean pd.Series aligned to transactions_df's row order/index.
+        A list of cluster dicts, each with:
+        - hub_account: the fanning account.
+        - direction: "out" (hub is the sender) or "in" (hub is the receiver).
+        - row_indices: transactions_df row indices in this cluster.
+        - neighbor_count: distinct counterparties contributing to the count.
     """
     start_time = time.monotonic()
     df = transactions_df.reset_index(drop=True)
 
     if df.empty:
-        return pd.Series(False, index=df.index)
+        return []
 
     total_out_degree = df.groupby(df["From Account"], observed=True)["To Account"].transform("nunique")
     total_in_degree = df.groupby(df["To Account"], observed=True)["From Account"].transform("nunique")
@@ -311,14 +382,86 @@ def detect_fan_in_out(
     fan_out_counts = df.groupby([bin_id, df["From Account"]], observed=True)["To Account"].transform("nunique")
     fan_in_counts = df.groupby([bin_id, df["To Account"]], observed=True)["From Account"].transform("nunique")
 
-    flagged = ((fan_out_counts >= min_fan) | (fan_in_counts >= min_fan)) & ~is_hub
+    out_trigger_mask = (fan_out_counts >= min_fan) & ~is_hub
+    in_trigger_mask = (fan_in_counts >= min_fan) & ~is_hub
+
+    clusters: list[dict] = []
+
+    if out_trigger_mask.any():
+        subset = df[out_trigger_mask].copy()
+        subset["_bin"] = bin_id[out_trigger_mask]
+        for (_, account), group in subset.groupby(["_bin", "From Account"], observed=True):
+            clusters.append({
+                "hub_account": account,
+                "direction": "out",
+                "row_indices": list(group.index),
+                "neighbor_count": int(group["To Account"].nunique()),
+            })
+
+    if in_trigger_mask.any():
+        subset = df[in_trigger_mask].copy()
+        subset["_bin"] = bin_id[in_trigger_mask]
+        for (_, account), group in subset.groupby(["_bin", "To Account"], observed=True):
+            clusters.append({
+                "hub_account": account,
+                "direction": "in",
+                "row_indices": list(group.index),
+                "neighbor_count": int(group["From Account"].nunique()),
+            })
 
     elapsed = time.monotonic() - start_time
     logger.info(
-        "detect_fan_in_out: excluded %d / %d transactions as hub-account noise (degree > %d); "
-        "flagged %d / %d (%.4f%%) in %.2fs (min_fan=%d, time_window_hours=%.0f)",
-        int(is_hub.sum()), len(df), hub_degree_cap, int(flagged.sum()), len(df),
-        100 * flagged.mean() if len(df) else 0.0, elapsed, min_fan, time_window_hours,
+        "find_fan_clusters: excluded %d / %d transactions as hub-account noise (degree > %d); "
+        "found %d clusters covering %d transactions in %.2fs (min_fan=%d, time_window_hours=%.0f)",
+        int(is_hub.sum()), len(df), hub_degree_cap, len(clusters),
+        len(set(idx for c in clusters for idx in c["row_indices"])),
+        elapsed, min_fan, time_window_hours,
+    )
+    return clusters
+
+
+def detect_fan_in_out(
+    transactions_df: pd.DataFrame,
+    graph: nx.MultiDiGraph | None = None,
+    min_fan: int = 5,
+    time_window_hours: float = 12,
+    hub_degree_cap: int = 30,
+) -> pd.Series:
+    """Flag transactions where an account fans in/out to many counterparties fast.
+
+    A thin wrapper over find_fan_clusters: flattens its cluster list into
+    a single per-transaction boolean flag. See find_fan_clusters for the
+    detection logic itself; use that function directly (as
+    ml.scoring.group_into_cases does) when you need to know which
+    transactions belong to the *same* cluster, not just that they're
+    part of *some* fan-in/out burst.
+
+    Args:
+        transactions_df: Transaction rows to scan (a full split or
+            subset), needs Timestamp, From Account, To Account.
+        graph: Unused; present for signature parity with other detectors.
+        min_fan: Forwarded to find_fan_clusters.
+        time_window_hours: Forwarded to find_fan_clusters.
+        hub_degree_cap: Forwarded to find_fan_clusters.
+
+    Returns:
+        A boolean pd.Series aligned to transactions_df's row order/index.
+    """
+    df = transactions_df.reset_index(drop=True)
+    flagged = pd.Series(False, index=df.index)
+    if df.empty:
+        return flagged
+
+    clusters = find_fan_clusters(
+        df, min_fan=min_fan, time_window_hours=time_window_hours, hub_degree_cap=hub_degree_cap
+    )
+    for cluster in clusters:
+        for row_idx in cluster["row_indices"]:
+            flagged.at[row_idx] = True
+
+    logger.info(
+        "detect_fan_in_out: flagged %d / %d transactions (%.4f%%) across %d clusters",
+        int(flagged.sum()), len(df), 100 * flagged.mean() if len(df) else 0.0, len(clusters),
     )
     return flagged
 
